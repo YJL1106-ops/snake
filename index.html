@@ -271,6 +271,11 @@
             <div class="toggle">
               <label class="switch"><input id="toggleWrap" type="checkbox" />穿墙</label>
               <label class="switch"><input id="toggleVibe" type="checkbox" checked />震动</label>
+              <select id="difficulty" aria-label="Difficulty">
+                <option value="easy">难度：轻松</option>
+                <option value="normal" selected>难度：普通</option>
+                <option value="hard">难度：硬核</option>
+              </select>
               <select id="snakeColor" aria-label="Snake color">
                 <option value="green">蛇色：绿色</option>
                 <option value="blue">蛇色：蓝色</option>
@@ -332,9 +337,36 @@
 
   const SPECIAL_LIFE = 6.5;
 
-  // Food weights per level (tweakable)
-  const SPECIAL_WEIGHTS = {
-    // after each normal eat, maybe spawn a special
+  // ====== Difficulty ======
+  const DIFFICULTY = {
+    easy:   {
+      speedMul: 0.82,
+      goalMul:  0.72,
+      bossMul:  0.75,
+      poisonW:  0.08,
+      specialChance: 0.45,
+      countdown: 3.2,
+    },
+    normal: {
+      speedMul: 1.00,
+      goalMul:  1.00,
+      bossMul:  1.00,
+      poisonW:  0.22,
+      specialChance: 0.55,
+      countdown: 3.0,
+    },
+    hard:   {
+      speedMul: 1.12,
+      goalMul:  1.18,
+      bossMul:  1.18,
+      poisonW:  0.30,
+      specialChance: 0.62,
+      countdown: 2.4,
+    }
+  };
+
+  // Special foods (weights will be adjusted by difficulty)
+  const SPECIAL_BASE = {
     chance: 0.55,
     types: [
       {type:'bonus',  w:0.26},
@@ -421,6 +453,7 @@
 
   const toggleWrap = document.getElementById('toggleWrap');
   const toggleVibe = document.getElementById('toggleVibe');
+  const difficulty = document.getElementById('difficulty');
   const snakeColor = document.getElementById('snakeColor');
 
   const pad = {
@@ -504,6 +537,21 @@
     const lvl = LEVELS[clamp(toLevelIndex,0,LEVELS.length-1)];
     const wrapSaved = localStorage.getItem('snake_wrap');
 
+    // difficulty
+    const diffKey = (localStorage.getItem('snake_difficulty') || 'normal');
+    difficulty.value = diffKey;
+    const diff = DIFFICULTY[diffKey] || DIFFICULTY.normal;
+
+    // adjust special food weights based on difficulty
+    const base = SPECIAL_BASE.types.map(t => ({...t}));
+    for (const t of base) {
+      if (t.type === 'poison') t.w = diff.poisonW;
+    }
+    // renormalize others to keep sum stable-ish
+    const sum = base.reduce((a,b)=>a+b.w,0);
+    const scale = 1 / sum;
+    const specialTypes = base.map(t => ({type:t.type, w:t.w*scale}));
+
     state = {
       running:false,
       paused:false,
@@ -512,7 +560,8 @@
 
       levelIndex: clamp(toLevelIndex,0,LEVELS.length-1),
       levelName: lvl.name,
-      goal: lvl.goal,
+      difficulty: diffKey,
+      goal: Math.max(3, Math.round(lvl.goal * diff.goalMul)),
       clearedCount: 0, // counts normal food eaten
 
       wrap: wrapSaved==null ? !!lvl.wrapDefault : !!JSON.parse(wrapSaved),
@@ -529,9 +578,14 @@
       special:null,     // {x,y,type,life}
 
       score:0,
-      baseSpeed: lvl.baseSpeed,
-      speed: lvl.baseSpeed,
+      baseSpeed: lvl.baseSpeed * diff.speedMul,
+      speed: lvl.baseSpeed * diff.speedMul,
       boost:false,
+
+      specialChance: diff.specialChance,
+      specialTypes,
+
+      startCountdown: diff.countdown,
 
       accumulator:0,
       lastTime:null,
@@ -551,7 +605,8 @@
       const occ = new Set(state.snake.map(p=>p.x+','+p.y));
       for (const k of state.obstacleSet) occ.add(k);
       let start = candidates.find(c => !occ.has(c.x+','+c.y)) || randomFreeCell();
-      if (start) state.boss = { x:start.x, y:start.y, speed: lvl.boss.speed || 1.2, acc: 0 };
+      const diff = DIFFICULTY[state.difficulty] || DIFFICULTY.normal;
+      if (start) state.boss = { x:start.x, y:start.y, speed: (lvl.boss.speed || 1.2) * diff.bossMul, acc: 0 };
     }
 
     toggleWrap.checked = state.wrap;
@@ -585,8 +640,8 @@
     if (state.cleared) return;
     state.running = true;
     state.paused = false;
-    // 3-2-1 protection so you don't instantly die when switching focus
-    state.countdown = 3.0;
+    // countdown protection so you don't instantly die when switching focus
+    state.countdown = state.startCountdown || 3.0;
     state.accumulator = 0;
     syncUI();
     state.lastTime = performance.now();
@@ -671,10 +726,10 @@
 
   function maybeSpawnSpecial(){
     if (state.special) return;
-    if (Math.random() > SPECIAL_WEIGHTS.chance) return;
+    if (Math.random() > state.specialChance) return;
     const c = randomFreeCell();
     if (!c) return;
-    const type = weightedPick(SPECIAL_WEIGHTS.types);
+    const type = weightedPick(state.specialTypes);
     state.special = { ...c, type, life: SPECIAL_LIFE };
     if (type === 'bonus') showToast('出现奖励食物！');
     else if (type === 'slow') showToast('出现减速食物');
@@ -1220,6 +1275,21 @@
     localStorage.setItem('snake_wrap', JSON.stringify(state.wrap));
     showToast(state.wrap ? '穿墙：开' : '穿墙：关');
     vib(12);
+    draw();
+  });
+
+  difficulty.addEventListener('change', () => {
+    const v = difficulty.value;
+    localStorage.setItem('snake_difficulty', v);
+    showToast(v==='easy' ? '难度：轻松' : v==='hard' ? '难度：硬核' : '难度：普通');
+    vib(12);
+    // restart current level with new difficulty
+    const keepScore = state.score;
+    const keepBest = best;
+    reset(state.levelIndex);
+    state.score = keepScore;
+    best = keepBest;
+    syncUI();
     draw();
   });
 
