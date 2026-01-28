@@ -347,11 +347,11 @@
   // ====== Levels ======
   // goal = how many NORMAL foods you must eat to clear
   const LEVELS = [
-    { name:'起步',   baseSpeed:7.6, goal:6,  wrapDefault:false, obstacles:[] },
-    { name:'走廊',   baseSpeed:8.2, goal:8,  wrapDefault:false, obstacles: mkCorridor() },
-    { name:'十字',   baseSpeed:8.9, goal:10, wrapDefault:false, obstacles: mkCross() },
-    { name:'迷宫',   baseSpeed:9.5, goal:12, wrapDefault:false, obstacles: mkMazeLite() },
-    { name:'终局',   baseSpeed:10.2,goal:14, wrapDefault:false, obstacles: mkEndgame() },
+    { name:'起步',   baseSpeed:7.6, goal:6,  wrapDefault:false, obstacles:[], boss: null },
+    { name:'走廊',   baseSpeed:8.2, goal:8,  wrapDefault:false, obstacles: mkCorridor(), boss: null },
+    { name:'十字',   baseSpeed:8.9, goal:10, wrapDefault:false, obstacles: mkCross(), boss: { speed: 1.1 } },
+    { name:'迷宫',   baseSpeed:9.5, goal:12, wrapDefault:false, obstacles: mkMazeLite(), boss: { speed: 1.35 } },
+    { name:'终局',   baseSpeed:10.2,goal:14, wrapDefault:false, obstacles: mkEndgame(), boss: { speed: 1.6 } },
   ];
 
   function mkCorridor(){
@@ -536,9 +536,23 @@
       accumulator:0,
       lastTime:null,
       t:0,
+      countdown: 0,        // seconds (start protection)
+      boss: null,          // {x,y, speed, acc}
       particles:[],
       shake:0,
     };
+
+    // init boss (a chasing orb) for some levels
+    if (lvl.boss){
+      const candidates = [
+        {x:1,y:1},{x:GRID-2,y:1},{x:1,y:GRID-2},{x:GRID-2,y:GRID-2},
+        {x:Math.floor(GRID/2), y:1}, {x:Math.floor(GRID/2), y:GRID-2},
+      ];
+      const occ = new Set(state.snake.map(p=>p.x+','+p.y));
+      for (const k of state.obstacleSet) occ.add(k);
+      let start = candidates.find(c => !occ.has(c.x+','+c.y)) || randomFreeCell();
+      if (start) state.boss = { x:start.x, y:start.y, speed: lvl.boss.speed || 1.2, acc: 0 };
+    }
 
     toggleWrap.checked = state.wrap;
     placeFood();
@@ -571,8 +585,11 @@
     if (state.cleared) return;
     state.running = true;
     state.paused = false;
+    // 3-2-1 protection so you don't instantly die when switching focus
+    state.countdown = 3.0;
+    state.accumulator = 0;
     syncUI();
-    if (!state.lastTime) state.lastTime = performance.now();
+    state.lastTime = performance.now();
     requestAnimationFrame(loop);
   }
 
@@ -685,6 +702,54 @@
     }
   }
 
+  // ====== Boss (chaser) ======
+  function wrapDist(a, b){
+    const d = Math.abs(a-b);
+    return Math.min(d, GRID - d);
+  }
+
+  function distToHead(x, y){
+    const head = state.snake[state.snake.length-1];
+    if (state.wrap) return wrapDist(x, head.x) + wrapDist(y, head.y);
+    return Math.abs(x-head.x) + Math.abs(y-head.y);
+  }
+
+  function moveBossOnce(){
+    if (!state.boss) return;
+    const dirs = [
+      {x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}
+    ];
+    const options = [];
+    for (const d of dirs){
+      let nx = state.boss.x + d.x;
+      let ny = state.boss.y + d.y;
+      if (state.wrap){
+        nx = (nx + GRID) % GRID;
+        ny = (ny + GRID) % GRID;
+      } else {
+        if (nx < 0 || ny < 0 || nx >= GRID || ny >= GRID) continue;
+      }
+      if (state.obstacleSet.has(nx+','+ny)) continue;
+      options.push({nx, ny, score: distToHead(nx,ny)});
+    }
+    if (!options.length) return;
+    options.sort((a,b)=>a.score-b.score);
+    const best = options.filter(o=>o.score===options[0].score);
+    const pick = best[(Math.random()*best.length)|0];
+
+    state.boss.x = pick.nx;
+    state.boss.y = pick.ny;
+
+    // If boss occupies food, respawn it (keeps fairness)
+    if (state.food && state.food.x===state.boss.x && state.food.y===state.boss.y) placeFood();
+    if (state.special && state.special.x===state.boss.x && state.special.y===state.boss.y) state.special = null;
+
+    // Collision with snake
+    if (state.snake.some(p => p.x===state.boss.x && p.y===state.boss.y)){
+      return gameOver('被Boss抓到');
+    }
+  }
+
   function applyEatSpecial(type){
     if (type === 'bonus'){
       state.score += 50;
@@ -780,6 +845,15 @@
     state.lastTime = t;
     state.t += dt;
 
+    // countdown phase: no movement (gives time to get hands on controls)
+    if (state.countdown > 0){
+      state.countdown = Math.max(0, state.countdown - dt);
+      syncUI();
+      draw(false, false, true);
+      requestAnimationFrame(loop);
+      return;
+    }
+
     // special timer
     if (state.special){
       state.special.life -= dt;
@@ -797,6 +871,19 @@
       if (p.life <= 0) state.particles.splice(i,1);
     }
 
+    // boss movement (independent from snake speed)
+    if (state.boss){
+      state.boss.acc += dt;
+      const bt = 1 / state.boss.speed;
+      // avoid too many steps on big frame drops
+      state.boss.acc = Math.min(state.boss.acc, bt * 4);
+      while (state.boss.acc >= bt){
+        moveBossOnce();
+        if (state.dead) return;
+        state.boss.acc -= bt;
+      }
+    }
+
     const speedNow = state.speed * (state.boost ? BOOST_MULT : 1);
     const stepTime = 1 / speedNow;
 
@@ -812,7 +899,7 @@
     requestAnimationFrame(loop);
   }
 
-  function draw(isGameOver=false, isWin=false){
+  function draw(isGameOver=false, isWin=false, isCountdown=false){
     const w = canvas.width, h = canvas.height;
     let ox = 0, oy = 0;
     if (state.shake > 0){
@@ -863,6 +950,24 @@
       ctx.stroke();
     }
 
+    // boss
+    if (state.boss){
+      const x = state.boss.x * CELL;
+      const y = state.boss.y * CELL;
+      const pulse = 0.5 + 0.5*Math.sin(state.t*5.2);
+      const inset = 6.2 - pulse*1.2;
+      ctx.save();
+      ctx.shadowColor = colorToRgba(COLORS.danger, 0.55);
+      ctx.shadowBlur = 22;
+      const grad = ctx.createRadialGradient(x+CELL/2, y+CELL/2, 4, x+CELL/2, y+CELL/2, CELL*0.6);
+      grad.addColorStop(0, colorToRgba(COLORS.danger, 0.95));
+      grad.addColorStop(1, colorToRgba(COLORS.danger, 0.10));
+      ctx.fillStyle = grad;
+      roundRect(x+inset, y+inset, CELL-inset*2, CELL-inset*2, 14);
+      ctx.fill();
+      ctx.restore();
+    }
+
     // snake
     ctx.save();
     ctx.shadowColor = colorToRgba(COLORS.snake2(), 0.35);
@@ -897,11 +1002,14 @@
     }
     ctx.globalAlpha = 1;
 
+    if (isCountdown){
+      overlay(`准备… ${Math.max(1, Math.ceil(state.countdown))}`, false, true, true);
+    }
     if (!state.running && !state.dead && !state.cleared){
-      overlay(`第 ${state.levelIndex+1} 关：${state.levelName}｜点“开始”或按方向键`);
+      overlay(`第 ${state.levelIndex+1} 关：${state.levelName}｜点“开始”或按方向键/回车`);
     }
     if (state.paused){
-      overlay('已暂停');
+      overlay('已暂停（回车/空格）');
     }
     if (isGameOver){
       overlay(`游戏结束｜得分 ${state.score}`, true);
@@ -912,11 +1020,11 @@
 
     ctx.restore();
 
-    function overlay(text, warn=false, win=false){
+    function overlay(text, warn=false, win=false, big=false){
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,.48)';
       ctx.fillRect(-ox,-oy,w,h);
-      ctx.font = '800 22px ui-sans-serif, system-ui';
+      ctx.font = big ? '900 44px ui-sans-serif, system-ui' : '800 22px ui-sans-serif, system-ui';
       ctx.fillStyle = warn ? COLORS.warn : (win ? '#a7f3d0' : COLORS.text);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -1038,8 +1146,8 @@
     else if (k === 'arrowdown' || k === 's') { e.preventDefault(); setDirection(0,1); if(!state.running) start(); }
     else if (k === 'arrowleft' || k === 'a') { e.preventDefault(); setDirection(-1,0); if(!state.running) start(); }
     else if (k === 'arrowright' || k === 'd') { e.preventDefault(); setDirection(1,0); if(!state.running) start(); }
-    else if (k === ' ') { e.preventDefault(); pause(); }
-    else if (k === 'enter') { e.preventDefault(); start(); }
+    else if (k === ' ') { e.preventDefault(); if (!state.running) start(); else pause(); }
+    else if (k === 'enter') { e.preventDefault(); if (!state.running) start(); else pause(); }
     else if (k === 'r') { e.preventDefault(); reset(state.levelIndex); start(); }
     else if (k === 'n') { e.preventDefault(); nextLevel(); }
   }, {passive:false});
