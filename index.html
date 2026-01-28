@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>贪吃蛇 · Neon Snake</title>
+  <title>Neon Snake · 闯关版</title>
   <meta name="theme-color" content="#0b1020" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111936'/%3E%3Cpath d='M18 22h20a10 10 0 0 1 0 20H26a8 8 0 0 1 0-16h14' fill='none' stroke='%234ade80' stroke-width='6' stroke-linecap='round'/%3E%3Ccircle cx='46' cy='34' r='5' fill='%23fb7185'/%3E%3C/svg%3E" />
   <style>
@@ -15,11 +15,20 @@
       --muted:#9aa6d6;
       --grid:#1a2450;
       --grid2:#22306b;
+
+      /* snake colors are dynamic */
       --snake:#4ade80;
       --snake2:#22c55e;
+
       --food:#fb7185;
       --bonus:#fbbf24;
+      --slow:#60a5fa;
+      --shrink:#34d399;
+      --poison:#a78bfa;
+
+      --wall:#94a3b8;
       --warn:#fbbf24;
+      --danger:#fb7185;
       --shadow: 0 24px 70px rgba(0,0,0,.45);
     }
     *{ box-sizing:border-box; }
@@ -40,7 +49,7 @@
       padding-bottom: max(16px, env(safe-area-inset-bottom));
     }
 
-    .wrap{ width:min(980px, 100%); display:grid; gap:14px; }
+    .wrap{ width:min(1020px, 100%); display:grid; gap:14px; }
 
     .card{
       background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
@@ -81,20 +90,11 @@
       background: rgba(255,255,255,.04);
       color:var(--text);
       font-variant-numeric: tabular-nums;
+      white-space:nowrap;
     }
 
-    .row{
-      display:grid;
-      grid-template-columns: 1fr;
-      gap:12px;
-      padding:14px;
-    }
-
-    .stage{
-      display:grid;
-      grid-template-columns: 1fr;
-      gap:12px;
-    }
+    .row{ display:grid; grid-template-columns: 1fr; gap:12px; padding:14px; }
+    .stage{ display:grid; grid-template-columns: 1fr; gap:12px; }
 
     canvas{
       width:100%;
@@ -118,7 +118,7 @@
 
     .btns{ display:flex; gap:10px; flex-wrap:wrap; }
 
-    button{
+    button, select{
       border:1px solid rgba(34,48,107,.85);
       background: rgba(255,255,255,.05);
       color:var(--text);
@@ -129,6 +129,8 @@
       user-select:none;
       -webkit-tap-highlight-color: transparent;
     }
+    select{ cursor:default; }
+
     button:hover{ background: rgba(255,255,255,.08); }
     button:active{ transform: translateY(1px) scale(.99); }
 
@@ -163,7 +165,7 @@
       font-size:13px;
       display:none;
       backdrop-filter: blur(10px);
-      max-width:min(560px, 92vw);
+      max-width:min(640px, 92vw);
       text-align:center;
       z-index:10;
     }
@@ -208,21 +210,20 @@
       min-width: 110px;
     }
 
-    .toggle{
+    .toggle{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .switch{ display:inline-flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); user-select:none; }
+    .switch input{ width:18px; height:18px; }
+
+    .legend{
       display:flex;
       gap:10px;
-      align-items:center;
       flex-wrap:wrap;
-    }
-    .switch{
-      display:inline-flex;
       align-items:center;
-      gap:8px;
       font-size:12px;
       color:var(--muted);
-      user-select:none;
     }
-    .switch input{ width:18px; height:18px; }
+    .tag{ display:inline-flex; align-items:center; gap:6px; padding:3px 8px; border-radius:999px; border:1px solid rgba(34,48,107,.75); background: rgba(255,255,255,.03); }
+    .dot{ width:10px; height:10px; border-radius:999px; display:inline-block; }
 
     @media (max-width: 820px){
       .touch{ display:grid; }
@@ -239,13 +240,15 @@
           <div class="brand">
             <div class="logo" aria-hidden="true"></div>
             <div>
-              <h1>Neon Snake</h1>
-              <div class="hint">方向键 / WASD，<span class="kbd">Space</span> 暂停，<span class="kbd">R</span> 重新开始</div>
+              <h1>Neon Snake · 闯关</h1>
+              <div class="hint">方向键 / WASD，<span class="kbd">Space</span> 暂停，<span class="kbd">R</span> 重开，<span class="kbd">N</span> 下一关</div>
             </div>
           </div>
         </div>
 
         <div class="stats">
+          <div class="pill">关卡：<span id="level">1</span></div>
+          <div class="pill">进度：<span id="progress">0/0</span></div>
           <div class="pill">分数：<span id="score">0</span></div>
           <div class="pill">最高：<span id="best">0</span></div>
           <div class="pill">速度：<span id="speed">8</span></div>
@@ -261,13 +264,29 @@
             <div class="btns">
               <button id="btnStart" class="primary">开始 / 继续</button>
               <button id="btnPause">暂停</button>
-              <button id="btnRestart">重新开始</button>
+              <button id="btnRestart">重开</button>
+              <button id="btnNext">下一关</button>
             </div>
 
             <div class="toggle">
               <label class="switch"><input id="toggleWrap" type="checkbox" />穿墙</label>
               <label class="switch"><input id="toggleVibe" type="checkbox" checked />震动</label>
+              <select id="snakeColor" aria-label="Snake color">
+                <option value="green">蛇色：绿色</option>
+                <option value="blue">蛇色：蓝色</option>
+                <option value="purple">蛇色：紫色</option>
+                <option value="orange">蛇色：橙色</option>
+                <option value="pink">蛇色：粉色</option>
+              </select>
             </div>
+          </div>
+
+          <div class="legend" aria-label="Food legend">
+            <span class="tag"><span class="dot" style="background: var(--food)"></span>普通 +10</span>
+            <span class="tag"><span class="dot" style="background: var(--bonus)"></span>奖励 +50（限时）</span>
+            <span class="tag"><span class="dot" style="background: var(--slow)"></span>减速 -速度</span>
+            <span class="tag"><span class="dot" style="background: var(--shrink)"></span>缩短 -2格</span>
+            <span class="tag"><span class="dot" style="background: var(--poison)"></span>毒药 游戏结束</span>
           </div>
 
           <div class="touch" aria-label="Touch controls">
@@ -286,13 +305,12 @@
             <div class="touchActions">
               <button id="padRestart" aria-label="Restart">重开</button>
               <button id="padBoost" aria-label="Boost (hold)" title="按住小加速">加速</button>
+              <button id="padNext" aria-label="Next">下一关</button>
             </div>
           </div>
 
           <div class="note">
-            手机操作：优先用下方方向键（更稳）；也支持在画布上滑动改变方向。
-            <span class="desktopOnly">电脑：方向键/WASD，空格暂停，R 重开。</span>
-            金色“奖励食物”出现后会倒计时，吃到加分更多。
+            手机：优先用下方方向键（更稳）；也支持在画布上滑动改变方向。<span class="desktopOnly">电脑：方向键/WASD；Space 暂停；N 下一关。</span>
           </div>
         </div>
       </div>
@@ -305,18 +323,91 @@
 (() => {
   // ====== Config ======
   const GRID = 20;
-  const CELL = 32;              // 640 / 20
-  const BASE_SPEED = 8;         // cells per second
-  const SPEED_STEP = 0.25;
-  const MAX_SPEED = 18;
-  const BOOST_MULT = 1.55;      // hold to boost (touch button)
+  const CELL = 32;
 
-  const BONUS_CHANCE = 0.16;    // chance after each eat
-  const BONUS_LIFE = 6.5;       // seconds
+  const BASE_SPEED = 7.6;
+  const SPEED_STEP = 0.18;
+  const MAX_SPEED  = 18;
+  const BOOST_MULT = 1.55;
 
+  const SPECIAL_LIFE = 6.5;
+
+  // Food weights per level (tweakable)
+  const SPECIAL_WEIGHTS = {
+    // after each normal eat, maybe spawn a special
+    chance: 0.55,
+    types: [
+      {type:'bonus',  w:0.26},
+      {type:'slow',   w:0.28},
+      {type:'shrink', w:0.24},
+      {type:'poison', w:0.22},
+    ]
+  };
+
+  // ====== Levels ======
+  // goal = how many NORMAL foods you must eat to clear
+  const LEVELS = [
+    { name:'起步',   baseSpeed:7.6, goal:6,  wrapDefault:false, obstacles:[] },
+    { name:'走廊',   baseSpeed:8.2, goal:8,  wrapDefault:false, obstacles: mkCorridor() },
+    { name:'十字',   baseSpeed:8.9, goal:10, wrapDefault:false, obstacles: mkCross() },
+    { name:'迷宫',   baseSpeed:9.5, goal:12, wrapDefault:false, obstacles: mkMazeLite() },
+    { name:'终局',   baseSpeed:10.2,goal:14, wrapDefault:false, obstacles: mkEndgame() },
+  ];
+
+  function mkCorridor(){
+    const o=[];
+    // two horizontal bars with gaps
+    for (let x=2; x<GRID-2; x++){
+      if (x===6 || x===13) continue;
+      o.push({x, y:6});
+      o.push({x, y:13});
+    }
+    return o;
+  }
+  function mkCross(){
+    const o=[];
+    const mid=Math.floor(GRID/2);
+    for (let y=2; y<GRID-2; y++) if (y!==mid) o.push({x:mid,y});
+    for (let x=2; x<GRID-2; x++) if (x!==mid) o.push({x,y:mid});
+    // leave 4 holes near center
+    const holes=[{x:mid,y:mid-2},{x:mid,y:mid+2},{x:mid-2,y:mid},{x:mid+2,y:mid}];
+    return o.filter(p => !holes.some(h => h.x===p.x && h.y===p.y));
+  }
+  function mkMazeLite(){
+    const o=[];
+    // vertical pillars
+    for (let x=3; x<GRID-3; x+=4){
+      for (let y=2; y<GRID-2; y++){
+        if (y===4 || y===10 || y===15) continue;
+        o.push({x,y});
+      }
+    }
+    // few blocks
+    const blocks=[[8,8],[11,11],[14,5],[5,14]];
+    for (const [x,y] of blocks){ o.push({x,y}); o.push({x+1,y}); }
+    return dedup(o);
+  }
+  function mkEndgame(){
+    const o=[];
+    // border ring inside edges
+    for (let x=2; x<GRID-2; x++) { o.push({x,y:2}); o.push({x,y:GRID-3}); }
+    for (let y=2; y<GRID-2; y++) { o.push({x:2,y}); o.push({x:GRID-3,y}); }
+    // openings
+    const holes=[{x:Math.floor(GRID/2), y:2},{x:Math.floor(GRID/2), y:GRID-3},{x:2,y:Math.floor(GRID/2)},{x:GRID-3,y:Math.floor(GRID/2)}];
+    return o.filter(p => !holes.some(h=>h.x===p.x&&h.y===p.y));
+  }
+  function dedup(arr){
+    const m=new Map();
+    for (const p of arr) m.set(p.x+','+p.y, p);
+    return [...m.values()];
+  }
+
+  // ====== DOM ======
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
 
+  const elLevel    = document.getElementById('level');
+  const elProgress = document.getElementById('progress');
   const elScore = document.getElementById('score');
   const elBest  = document.getElementById('best');
   const elSpeed = document.getElementById('speed');
@@ -326,9 +417,11 @@
   const btnStart   = document.getElementById('btnStart');
   const btnPause   = document.getElementById('btnPause');
   const btnRestart = document.getElementById('btnRestart');
+  const btnNext    = document.getElementById('btnNext');
 
   const toggleWrap = document.getElementById('toggleWrap');
   const toggleVibe = document.getElementById('toggleVibe');
+  const snakeColor = document.getElementById('snakeColor');
 
   const pad = {
     up: document.getElementById('padUp'),
@@ -338,17 +431,23 @@
     mid: document.getElementById('padMid'),
     restart: document.getElementById('padRestart'),
     boost: document.getElementById('padBoost'),
+    next: document.getElementById('padNext'),
   };
 
   const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const COLORS = {
     grid1: css('--grid'),
     grid2: css('--grid2'),
-    snake: css('--snake'),
-    snake2: css('--snake2'),
+    snake: () => css('--snake'),
+    snake2: () => css('--snake2'),
     food: css('--food'),
     bonus: css('--bonus'),
+    slow: css('--slow'),
+    shrink: css('--shrink'),
+    poison: css('--poison'),
+    wall: css('--wall'),
     warn: css('--warn'),
+    danger: css('--danger'),
     text: css('--text'),
   };
 
@@ -367,33 +466,80 @@
     showToast._t = setTimeout(() => toast.classList.remove('show'), ms);
   }
 
+  function weightedPick(items){
+    const sum = items.reduce((a,b)=>a+b.w,0);
+    let r = Math.random()*sum;
+    for (const it of items){
+      r -= it.w;
+      if (r <= 0) return it.type;
+    }
+    return items[items.length-1].type;
+  }
+
+  function setSnakeTheme(key){
+    const themes = {
+      green:  {a:'#4ade80', b:'#22c55e'},
+      blue:   {a:'#60a5fa', b:'#3b82f6'},
+      purple: {a:'#a78bfa', b:'#8b5cf6'},
+      orange: {a:'#fb923c', b:'#f97316'},
+      pink:   {a:'#fb7185', b:'#f43f5e'},
+    };
+    const t = themes[key] || themes.green;
+    document.documentElement.style.setProperty('--snake', t.a);
+    document.documentElement.style.setProperty('--snake2', t.b);
+  }
+
   // ====== State ======
   let best = Number(localStorage.getItem('snake_best') || 0);
   elBest.textContent = best;
 
   let state;
 
-  function reset(){
+  function reset(toLevelIndex=0){
     const mid = Math.floor(GRID / 2);
+    const colorKey = (localStorage.getItem('snake_color') || 'green');
+    snakeColor.value = colorKey;
+    setSnakeTheme(colorKey);
+
+    const lvl = LEVELS[clamp(toLevelIndex,0,LEVELS.length-1)];
+    const wrapSaved = localStorage.getItem('snake_wrap');
+
     state = {
       running:false,
       paused:false,
       dead:false,
-      wrap: !!JSON.parse(localStorage.getItem('snake_wrap') || 'false'),
+      cleared:false,
+
+      levelIndex: clamp(toLevelIndex,0,LEVELS.length-1),
+      levelName: lvl.name,
+      goal: lvl.goal,
+      clearedCount: 0, // counts normal food eaten
+
+      wrap: wrapSaved==null ? !!lvl.wrapDefault : !!JSON.parse(wrapSaved),
+
       dir:{x:1,y:0},
       nextDir:{x:1,y:0},
+
       snake:[{x:mid-2,y:mid},{x:mid-1,y:mid},{x:mid,y:mid}],
-      food:null,
-      bonus:null,           // {x,y,life}
+
+      obstacles: lvl.obstacles.slice(),
+      obstacleSet: new Set(lvl.obstacles.map(p=>p.x+','+p.y)),
+
+      food:null,        // normal food cell
+      special:null,     // {x,y,type,life}
+
       score:0,
-      speed:BASE_SPEED,
+      baseSpeed: lvl.baseSpeed,
+      speed: lvl.baseSpeed,
       boost:false,
+
       accumulator:0,
       lastTime:null,
       t:0,
       particles:[],
       shake:0,
     };
+
     toggleWrap.checked = state.wrap;
     placeFood();
     syncUI();
@@ -401,19 +547,28 @@
   }
 
   function syncUI(){
+    elLevel.textContent = String(state.levelIndex + 1);
+    elProgress.textContent = `${state.clearedCount}/${state.goal}`;
+
     elScore.textContent = String(state.score);
     elBest.textContent = String(best);
+
     const s = state.speed * (state.boost ? BOOST_MULT : 1);
     elSpeed.textContent = String(Math.round(s * 10) / 10);
 
     if (state.dead) elStatus.textContent = '结束';
+    else if (state.cleared) elStatus.textContent = '通关';
     else if (state.paused) elStatus.textContent = '暂停';
     else if (state.running) elStatus.textContent = '进行中';
     else elStatus.textContent = '准备';
+
+    btnNext.disabled = !state.cleared;
+    if (pad.next) pad.next.disabled = !state.cleared;
   }
 
   function start(){
-    if (state.dead) reset();
+    if (state.dead) reset(state.levelIndex);
+    if (state.cleared) return;
     state.running = true;
     state.paused = false;
     syncUI();
@@ -422,7 +577,7 @@
   }
 
   function pause(){
-    if (!state.running || state.dead) return;
+    if (!state.running || state.dead || state.cleared) return;
     state.paused = !state.paused;
     syncUI();
     vib(10);
@@ -432,33 +587,63 @@
     }
   }
 
-  function gameOver(){
+  function nextLevel(){
+    if (!state.cleared) return;
+    const next = state.levelIndex + 1;
+    if (next >= LEVELS.length){
+      showToast('已通关全部关卡！');
+      vib(30);
+      return;
+    }
+    const keepScore = state.score;
+    const keepBest = best;
+    reset(next);
+    state.score = keepScore;
+    best = keepBest;
+    syncUI();
+    showToast(`进入第 ${next+1} 关：${LEVELS[next].name}`);
+    vib(20);
+    start();
+  }
+
+  function gameOver(reason='撞到啦'){
     state.dead = true;
     state.running = false;
     state.paused = false;
     state.shake = 12;
-    vib(60);
+    vib(70);
 
     if (state.score > best) {
       best = state.score;
       localStorage.setItem('snake_best', String(best));
       showToast('新纪录！');
     } else {
-      showToast('撞到啦：按 R 或点“重开”');
+      showToast(`${reason}：按 R 或点“重开”`);
     }
     syncUI();
     draw(true);
   }
 
-  function randomFreeCell(){
-    const occupied = new Set(state.snake.map(p => `${p.x},${p.y}`));
-    if (state.food) occupied.add(`${state.food.x},${state.food.y}`);
-    if (state.bonus) occupied.add(`${state.bonus.x},${state.bonus.y}`);
+  function winLevel(){
+    state.cleared = true;
+    state.running = false;
+    state.paused = false;
+    vib(35);
+    syncUI();
+    showToast(`第 ${state.levelIndex+1} 关完成！点“下一关”继续` , 1400);
+    draw(false, true);
+  }
 
-    const free = [];
-    for (let y=0; y<GRID; y++) for (let x=0; x<GRID; x++) {
-      const k = `${x},${y}`;
-      if (!occupied.has(k)) free.push({x,y});
+  function randomFreeCell(){
+    const occ = new Set(state.snake.map(p=>p.x+','+p.y));
+    for (const k of state.obstacleSet) occ.add(k);
+    if (state.food) occ.add(state.food.x+','+state.food.y);
+    if (state.special) occ.add(state.special.x+','+state.special.y);
+
+    const free=[];
+    for (let y=0;y<GRID;y++) for (let x=0;x<GRID;x++){
+      const k=x+','+y;
+      if (!occ.has(k)) free.push({x,y});
     }
     return free.length ? free[(Math.random()*free.length)|0] : null;
   }
@@ -467,32 +652,62 @@
     state.food = randomFreeCell();
   }
 
-  function maybeSpawnBonus(){
-    if (state.bonus) return;
-    if (Math.random() > BONUS_CHANCE) return;
+  function maybeSpawnSpecial(){
+    if (state.special) return;
+    if (Math.random() > SPECIAL_WEIGHTS.chance) return;
     const c = randomFreeCell();
     if (!c) return;
-    state.bonus = { ...c, life: BONUS_LIFE };
-    showToast('出现奖励食物！');
+    const type = weightedPick(SPECIAL_WEIGHTS.types);
+    state.special = { ...c, type, life: SPECIAL_LIFE };
+    if (type === 'bonus') showToast('出现奖励食物！');
+    else if (type === 'slow') showToast('出现减速食物');
+    else if (type === 'shrink') showToast('出现缩短食物');
+    else if (type === 'poison') showToast('出现毒药食物（危险）');
   }
 
   function setDirection(dx, dy){
     const {x,y} = state.dir;
-    if (dx === -x && dy === -y) return; // no reverse
+    if (dx === -x && dy === -y) return;
     state.nextDir = {x:dx, y:dy};
   }
 
-  function addParticles(x, y, color, n=10){
+  function addParticles(px, py, color, n=12){
     for (let i=0;i<n;i++){
       const a = Math.random()*Math.PI*2;
-      const sp = 70 + Math.random()*110;
+      const sp = 70 + Math.random()*120;
       state.particles.push({
-        x, y,
+        x:px, y:py,
         vx: Math.cos(a)*sp,
         vy: Math.sin(a)*sp,
-        life: 0.45 + Math.random()*0.25,
+        life: 0.42 + Math.random()*0.25,
         color
       });
+    }
+  }
+
+  function applyEatSpecial(type){
+    if (type === 'bonus'){
+      state.score += 50;
+      state.speed = Math.min(MAX_SPEED, state.speed + SPEED_STEP*2);
+      vib(26);
+      return;
+    }
+    if (type === 'slow'){
+      state.score += 5;
+      state.speed = Math.max(5.0, state.speed - 1.2);
+      vib(15);
+      return;
+    }
+    if (type === 'shrink'){
+      state.score += 8;
+      // shrink by 2 segments (keep at least 3)
+      if (state.snake.length > 3) state.snake.shift();
+      if (state.snake.length > 3) state.snake.shift();
+      vib(18);
+      return;
+    }
+    if (type === 'poison'){
+      return gameOver('吃到毒药');
     }
   }
 
@@ -506,41 +721,52 @@
       nx = (nx + GRID) % GRID;
       ny = (ny + GRID) % GRID;
     } else {
-      if (nx < 0 || ny < 0 || nx >= GRID || ny >= GRID) return gameOver();
+      if (nx < 0 || ny < 0 || nx >= GRID || ny >= GRID) return gameOver('撞墙');
     }
 
-    const newHead = {x:nx, y:ny};
+    const k = nx+','+ny;
+    if (state.obstacleSet.has(k)) return gameOver('撞到障碍');
 
-    const willEat = state.food && nx === state.food.x && ny === state.food.y;
-    const willEatBonus = state.bonus && nx === state.bonus.x && ny === state.bonus.y;
+    const willEatNormal = state.food && nx===state.food.x && ny===state.food.y;
+    const willEatSpecial= state.special && nx===state.special.x && ny===state.special.y;
 
-    // Self collision: if not eating, tail moves away so ignore tail
-    const bodyToCheck = (willEat || willEatBonus) ? state.snake : state.snake.slice(1);
-    if (bodyToCheck.some(p => p.x === nx && p.y === ny)) return gameOver();
+    // Self collision (ignore tail if not eating)
+    const bodyToCheck = (willEatNormal || willEatSpecial) ? state.snake : state.snake.slice(1);
+    if (bodyToCheck.some(p => p.x===nx && p.y===ny)) return gameOver('撞到自己');
 
-    state.snake.push(newHead);
+    state.snake.push({x:nx,y:ny});
 
-    if (willEat || willEatBonus){
-      const px = (nx + 0.5) * CELL;
-      const py = (ny + 0.5) * CELL;
+    const px = (nx+0.5)*CELL;
+    const py = (ny+0.5)*CELL;
 
-      if (willEat){
-        state.score += 10;
-        state.speed = Math.min(MAX_SPEED, state.speed + SPEED_STEP);
-        addParticles(px, py, COLORS.food, 14);
-        vib(18);
-        placeFood();
-        maybeSpawnBonus();
+    if (willEatNormal){
+      state.score += 10;
+      state.clearedCount += 1;
+      state.speed = Math.min(MAX_SPEED, state.speed + SPEED_STEP);
+      addParticles(px,py,COLORS.food,14);
+      vib(16);
+      placeFood();
+      maybeSpawnSpecial();
+
+      if (state.clearedCount >= state.goal) {
+        // still keep snake length from last eat
+        state.food = null;
+        state.special = null;
+        syncUI();
+        return winLevel();
       }
-      if (willEatBonus){
-        state.score += 50;
-        state.speed = Math.min(MAX_SPEED, state.speed + SPEED_STEP*3);
-        addParticles(px, py, COLORS.bonus, 22);
-        vib(28);
-        state.bonus = null;
-      }
+    }
 
-    } else {
+    if (willEatSpecial){
+      const t = state.special.type;
+      const color = t==='bonus'?COLORS.bonus : t==='slow'?COLORS.slow : t==='shrink'?COLORS.shrink : COLORS.poison;
+      addParticles(px,py,color, t==='poison'?18:22);
+      state.special = null;
+      applyEatSpecial(t);
+      if (state.dead) return;
+    }
+
+    if (!willEatNormal && !willEatSpecial){
       state.snake.shift();
     }
 
@@ -549,15 +775,15 @@
   }
 
   function loop(t){
-    if (!state.running || state.paused || state.dead) return;
+    if (!state.running || state.paused || state.dead || state.cleared) return;
     const dt = (t - state.lastTime) / 1000;
     state.lastTime = t;
     state.t += dt;
 
-    // bonus timer
-    if (state.bonus){
-      state.bonus.life -= dt;
-      if (state.bonus.life <= 0) state.bonus = null;
+    // special timer
+    if (state.special){
+      state.special.life -= dt;
+      if (state.special.life <= 0) state.special = null;
     }
 
     // particles
@@ -579,14 +805,14 @@
 
     while (state.accumulator >= stepTime){
       step();
-      if (state.dead) return;
+      if (state.dead || state.cleared) return;
       state.accumulator -= stepTime;
     }
 
     requestAnimationFrame(loop);
   }
 
-  function draw(isGameOver=false){
+  function draw(isGameOver=false, isWin=false){
     const w = canvas.width, h = canvas.height;
     let ox = 0, oy = 0;
     if (state.shake > 0){
@@ -616,27 +842,30 @@
     }
     ctx.globalAlpha = 1;
 
-    // food
-    if (state.food){
-      drawFood(state.food.x, state.food.y, COLORS.food, 0.85);
-    }
+    // obstacles
+    drawObstacles();
 
-    // bonus food + countdown ring
-    if (state.bonus){
-      const life = clamp(state.bonus.life / BONUS_LIFE, 0, 1);
-      drawFood(state.bonus.x, state.bonus.y, COLORS.bonus, 1.0);
-      const cx = (state.bonus.x+0.5)*CELL;
-      const cy = (state.bonus.y+0.5)*CELL;
+    // foods
+    if (state.food) drawFood(state.food.x, state.food.y, COLORS.food, 0.85);
+    if (state.special) {
+      const c = state.special.type === 'bonus' ? COLORS.bonus :
+                state.special.type === 'slow' ? COLORS.slow :
+                state.special.type === 'shrink' ? COLORS.shrink : COLORS.poison;
+      drawFood(state.special.x, state.special.y, c, 1.0);
+      // countdown ring
+      const life = clamp(state.special.life / SPECIAL_LIFE, 0, 1);
+      const cx = (state.special.x+0.5)*CELL;
+      const cy = (state.special.y+0.5)*CELL;
       ctx.beginPath();
-      ctx.strokeStyle = 'rgba(251,191,36,.85)';
+      ctx.strokeStyle = colorToRgba(c, 0.88);
       ctx.lineWidth = 3;
       ctx.arc(cx, cy, CELL*0.34, -Math.PI/2, -Math.PI/2 + Math.PI*2*life);
       ctx.stroke();
     }
 
-    // snake (glow + body)
+    // snake
     ctx.save();
-    ctx.shadowColor = 'rgba(34,197,94,.35)';
+    ctx.shadowColor = colorToRgba(COLORS.snake2(), 0.35);
     ctx.shadowBlur = 18;
     for (let i=0;i<state.snake.length;i++){
       const p = state.snake[i];
@@ -647,15 +876,13 @@
       const inset = isHead ? 3.6 : 4.2;
 
       const grad = ctx.createLinearGradient(x, y, x+CELL, y+CELL);
-      grad.addColorStop(0, colorMix(COLORS.snake, COLORS.snake2, 0.55 + 0.25*t));
-      grad.addColorStop(1, colorMix(COLORS.snake2, '#ffffff', 0.05));
+      grad.addColorStop(0, colorMix(COLORS.snake(), COLORS.snake2(), 0.55 + 0.25*t));
+      grad.addColorStop(1, colorMix(COLORS.snake2(), '#ffffff', 0.05));
       ctx.fillStyle = grad;
       roundRect(x+inset, y+inset, CELL-inset*2, CELL-inset*2, r);
       ctx.fill();
 
-      if (isHead){
-        drawEyes(x,y);
-      }
+      if (isHead) drawEyes(x,y);
     }
     ctx.restore();
 
@@ -670,9 +897,8 @@
     }
     ctx.globalAlpha = 1;
 
-    // overlay
-    if (!state.running && !state.dead){
-      overlay('点“开始”或按方向键开始');
+    if (!state.running && !state.dead && !state.cleared){
+      overlay(`第 ${state.levelIndex+1} 关：${state.levelName}｜点“开始”或按方向键`);
     }
     if (state.paused){
       overlay('已暂停');
@@ -680,28 +906,49 @@
     if (isGameOver){
       overlay(`游戏结束｜得分 ${state.score}`, true);
     }
+    if (isWin){
+      overlay(`关卡完成！点“下一关”`, false, true);
+    }
 
     ctx.restore();
 
-    function overlay(text, warn=false){
+    function overlay(text, warn=false, win=false){
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,.48)';
       ctx.fillRect(-ox,-oy,w,h);
-      ctx.font = '700 22px ui-sans-serif, system-ui';
-      ctx.fillStyle = warn ? COLORS.warn : COLORS.text;
+      ctx.font = '800 22px ui-sans-serif, system-ui';
+      ctx.fillStyle = warn ? COLORS.warn : (win ? '#a7f3d0' : COLORS.text);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(text, w/2-ox, h/2-oy);
+      ctx.restore();
+    }
+
+    function drawObstacles(){
+      if (!state.obstacles.length) return;
+      ctx.save();
+      ctx.shadowColor = 'rgba(148,163,184,.28)';
+      ctx.shadowBlur = 14;
+      for (const p of state.obstacles){
+        const x = p.x*CELL, y=p.y*CELL;
+        const pulse = 0.5 + 0.5*Math.sin(state.t*2.8 + (p.x+p.y)*0.15);
+        const inset = 6.5 - pulse*1.0;
+        const grad = ctx.createLinearGradient(x, y, x+CELL, y+CELL);
+        grad.addColorStop(0, 'rgba(148,163,184,.75)');
+        grad.addColorStop(1, 'rgba(226,232,240,.20)');
+        ctx.fillStyle = grad;
+        roundRect(x+inset, y+inset, CELL-inset*2, CELL-inset*2, 10);
+        ctx.fill();
+      }
       ctx.restore();
     }
   }
 
   function drawFood(gx, gy, color, amp=0.9){
     const x = gx*CELL, y = gy*CELL;
-    const pulse = 0.5 + 0.5*Math.sin(state.t*6.0);
+    const pulse = 0.5 + 0.5*Math.sin(state.t*6.0 + gx*0.2 + gy*0.17);
     const inset = 7 - pulse*1.5*amp;
 
-    // glow
     ctx.save();
     ctx.shadowColor = color;
     ctx.shadowBlur = 18;
@@ -713,7 +960,6 @@
     ctx.fill();
     ctx.restore();
 
-    // core
     ctx.fillStyle = colorToRgba('#000000', 0.12);
     roundRect(x+inset+1, y+inset+1, CELL-(inset+1)*2, CELL-(inset+1)*2, 11);
     ctx.fill();
@@ -725,12 +971,10 @@
     const ox = state.dir.x * 6;
     const oy = state.dir.y * 6;
 
-    // whites
     ctx.fillStyle = 'rgba(255,255,255,.9)';
     dot(ex + ox - 6, ey + oy - 4, 2.5);
     dot(ex + ox + 6, ey + oy - 4, 2.5);
 
-    // pupils
     ctx.fillStyle = 'rgba(0,0,0,.45)';
     dot(ex + ox - 6, ey + oy - 4, 1.2);
     dot(ex + ox + 6, ey + oy - 4, 1.2);
@@ -764,7 +1008,6 @@
   }
 
   function colorMix(a,b,t){
-    // accept hex or rgb(a)
     const ca = parseColor(a), cb = parseColor(b);
     const r = Math.round(ca.r + (cb.r-ca.r)*t);
     const g = Math.round(ca.g + (cb.g-ca.g)*t);
@@ -780,7 +1023,6 @@
       const n = parseInt(v,16);
       return {r:(n>>16)&255, g:(n>>8)&255, b:n&255};
     }
-    // rgb/rgba
     const m = s.match(/rgba?\(([^)]+)\)/i);
     if (m){
       const parts = m[1].split(',').map(x=>parseFloat(x.trim()));
@@ -798,7 +1040,8 @@
     else if (k === 'arrowright' || k === 'd') { e.preventDefault(); setDirection(1,0); if(!state.running) start(); }
     else if (k === ' ') { e.preventDefault(); pause(); }
     else if (k === 'enter') { e.preventDefault(); start(); }
-    else if (k === 'r') { e.preventDefault(); reset(); start(); }
+    else if (k === 'r') { e.preventDefault(); reset(state.levelIndex); start(); }
+    else if (k === 'n') { e.preventDefault(); nextLevel(); }
   }, {passive:false});
 
   // ====== Input: Swipe on canvas ======
@@ -816,14 +1059,11 @@
     const dt  = performance.now() - touchStart.t;
     touchStart = null;
 
-    // tap: start/pause
     if (adx < 10 && ady < 10 && dt < 260){
       if (!state.running) start();
       else pause();
       return;
     }
-
-    // swipe threshold: more forgiving
     if (Math.max(adx, ady) < 22) return;
 
     if (adx > ady) setDirection(dx > 0 ? 1 : -1, 0);
@@ -851,12 +1091,12 @@
   bindPad(pad.right,1,0);
 
   pad.mid?.addEventListener('pointerdown', (e) => { e.preventDefault(); if (!state.running) start(); else pause(); }, {passive:false});
-  pad.restart?.addEventListener('pointerdown', (e) => { e.preventDefault(); reset(); start(); }, {passive:false});
+  pad.restart?.addEventListener('pointerdown', (e) => { e.preventDefault(); reset(state.levelIndex); start(); }, {passive:false});
+  pad.next?.addEventListener('pointerdown', (e) => { e.preventDefault(); nextLevel(); }, {passive:false});
 
-  // boost hold
   if (pad.boost){
     pad.boost.addEventListener('pointerdown', (e) => { e.preventDefault(); state.boost = true; syncUI(); }, {passive:false});
-    const end = (e) => { if(!e) return; e.preventDefault?.(); state.boost = false; syncUI(); };
+    const end = (e) => { e?.preventDefault?.(); state.boost = false; syncUI(); };
     pad.boost.addEventListener('pointerup', end, {passive:false});
     pad.boost.addEventListener('pointercancel', end, {passive:false});
     pad.boost.addEventListener('pointerleave', end, {passive:false});
@@ -864,7 +1104,8 @@
 
   btnStart.addEventListener('click', () => start());
   btnPause.addEventListener('click', () => pause());
-  btnRestart.addEventListener('click', () => { reset(); start(); });
+  btnRestart.addEventListener('click', () => { reset(state.levelIndex); start(); });
+  btnNext.addEventListener('click', () => nextLevel());
 
   toggleWrap.addEventListener('change', () => {
     state.wrap = !!toggleWrap.checked;
@@ -874,13 +1115,21 @@
     draw();
   });
 
-  // prevent page scroll on touch buttons
+  snakeColor.addEventListener('change', () => {
+    const v = snakeColor.value;
+    localStorage.setItem('snake_color', v);
+    setSnakeTheme(v);
+    showToast('蛇的颜色已切换');
+    vib(10);
+    draw();
+  });
+
   document.querySelectorAll('button').forEach(b => {
     b.addEventListener('touchstart', (e) => e.preventDefault(), {passive:false});
   });
 
   // Init
-  reset();
+  reset(0);
 })();
 </script>
 </body>
