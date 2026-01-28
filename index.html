@@ -399,11 +399,31 @@
   function mkCross(){
     const o=[];
     const mid=Math.floor(GRID/2);
-    for (let y=2; y<GRID-2; y++) if (y!==mid) o.push({x:mid,y});
-    for (let x=2; x<GRID-2; x++) if (x!==mid) o.push({x,y:mid});
-    // leave 4 holes near center
-    const holes=[{x:mid,y:mid-2},{x:mid,y:mid+2},{x:mid-2,y:mid},{x:mid+2,y:mid}];
-    return o.filter(p => !holes.some(h => h.x===p.x && h.y===p.y));
+
+    // A cross wall, but keep a clear 5x5 area around the center so the snake can start safely
+    for (let y=2; y<GRID-2; y++) {
+      if (y===mid) continue;
+      o.push({x:mid,y});
+    }
+    for (let x=2; x<GRID-2; x++) {
+      if (x===mid) continue;
+      o.push({x,y:mid});
+    }
+
+    // Carve a safe plus-shaped corridor around spawn area
+    const safe = [];
+    for (let d=-2; d<=2; d++) {
+      safe.push({x:mid+d, y:mid});
+      safe.push({x:mid, y:mid+d});
+    }
+
+    // Also carve 4 holes further out (helps flow)
+    const holes=[
+      {x:mid, y:mid-3},{x:mid, y:mid+3},
+      {x:mid-3, y:mid},{x:mid+3, y:mid},
+    ];
+
+    return o.filter(p => !safe.some(h => h.x===p.x && h.y===p.y) && !holes.some(h => h.x===p.x && h.y===p.y));
   }
   function mkMazeLite(){
     const o=[];
